@@ -1,0 +1,14 @@
+# oriole-user 12 SD1A.210817.015.A4 7697517 release-keys
+- manufacturer: google
+- platform: gs101
+- codename: oriole
+- flavor: oriole-user
+- release: 12
+- id: SD1A.210817.015.A4
+- incremental: 7697517
+- tags: release-keys
+- fingerprint: google/oriole/oriole:12/SD1A.210817.015.A4/7697517:user/release-keys
+- is_ab: true
+- brand: google
+- branch: oriole-user-12-SD1A.210817.015.A4-7697517-release-keys
+- repo: google_oriole_dump

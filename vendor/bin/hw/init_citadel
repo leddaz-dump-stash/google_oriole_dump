@@ -1,0 +1,176 @@
+#!/vendor/bin/sh
+#
+# Copyright 2020 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This script automates Dauntless firmware updates
+#
+# We use the name "dauntless" in the source for clarity, but keep "citadel" on
+# the target so we don't have to change all the factory scripts.
+
+set -u
+
+# There are multiple pre-production images, so we have to pick the right one
+FWDIR=/vendor/firmware/dauntless
+
+# Update tool
+UPDATER=/vendor/bin/hw/citadel_updater
+
+# Log messages to both logcat and the shell
+LOG_TAG=init_citadel
+
+log_info() {
+    log -p i -t "${LOG_TAG}" "$1"
+    echo "$1" >&2
+}
+
+log_error() {
+    log -p e -t "${LOG_TAG}" "$1"
+    echo "$1" >&2
+}
+
+die() {
+    log_error "fatal: $1"
+    exit 1
+}
+
+get_running_version() {
+    # See what's running now
+    log_info "Checking firmware version..."
+    version=$(${UPDATER} -vv)
+    status=$?
+    if [[ $status -ne 0 ]] ; then
+        log_error "Failed to get firmware version"
+        return 1
+    fi
+    log_info "Running version: ${version}"
+    echo "$version"
+}
+
+find_image_file() {
+    version="$1"
+
+    # There are several flavors of pre-production chips and they're all signed
+    # differently (and so are production chips). If we have multiple images to
+    # choose from, we'll try to pick the image that matches the running
+    # firmware.
+
+    # The -vv option will try to identify the flavor. If it can, it will append
+    # a /FLAVOR string to the version string.
+    flavor=$(echo $version | cut -d/ -f3)
+    # Look for a matching image name
+    [[ -n "$flavor" ]] && log_info "Flavor: $flavor" &&
+      [[ -f "$FWDIR/$flavor.ec.bin" ]] &&
+      fwbin="$FWDIR/$flavor.ec.bin"
+    # Look for the default if no flavor known or image available
+    [[ -z "${fwbin:-}" ]] && [[ -f "$FWDIR/ec.bin" ]] &&
+      fwbin="$FWDIR/ec.bin"
+    # Still nothing? That's not right
+    if [[ -z "${fwbin:-}" ]]; then
+        log_info "Couldn't find a firmware image to upload"
+        return 1;
+    fi
+    log_info "Image file: $fwbin"
+    echo "$fwbin"
+}
+
+is_newer_ro() {
+    fwbin="$1"
+
+    file_is_newer=$(${UPDATER} --is_newer_ro "$fwbin")
+    status=$?
+    if [[ $status -ne 0 ]] ; then
+        log_error "Failed to compare running RO with file"
+        return 1
+    fi
+
+    log_info "Is RO in file newer: $file_is_newer"
+    echo "$file_is_newer";
+}
+
+update_ro() {
+    fwbin="$1"
+    log_error "TODO(b/171423093): RO update not yet supported"
+    return 1
+}
+
+is_newer_rw() {
+    fwbin="$1"
+
+    file_is_newer=$(${UPDATER} --is_newer_rw "$fwbin")
+    status=$?
+    if [[ $status -ne 0 ]] ; then
+        log_error "Failed to compare running RW with file"
+        return 1
+    fi
+
+    log_info "Is RW in file newer: $file_is_newer"
+    echo "$file_is_newer";
+}
+
+try_enable_rw() {
+    if ! ${UPDATER} --enable_rw '' ; then
+        log_info "The primary user will have to enable the update"
+        return 0
+    fi
+
+    log_info "Update enabled, rebooting now"
+    ${UPDATER} --reboot || ${UPDATER} --force_reset || log_error "can't reboot"
+    sleep 1
+}
+
+update_rw() {
+    fwbin="$1"
+
+    # Try several times
+    log_info "Uploading new RW..."
+    ${UPDATER} --rw "${fwbin}" && echo "okay" && try_enable_rw && return 0
+
+    log_info "Trying RW again..."
+    ${UPDATER} --rw "${fwbin}" && echo "okay" && try_enable_rw && return 0
+
+    log_info "Maybe a forced reset will help"
+    ${UPDATER} --force_reset || log_error "Couldn't force reset the chip"
+    sleep 1
+
+    log_info "Trying RW once more..."
+    ${UPDATER} --rw "${fwbin}" && echo "okay" && try_enable_rw && return 0
+
+    log_error "Nope. Couldn't upload new RW image."
+    return 1;
+}
+
+# Let's do this
+log_info "Starting $0"
+
+# What do we know?
+version=$(get_running_version) || die "No running version"
+fwbin=$(find_image_file "$version") || die "No image file"
+do_rw=$(is_newer_rw "$fwbin") || die "No RW comparsion"
+do_ro=$(is_newer_ro "$fwbin") || die "No RO comparsion"
+
+# Since RO can only happen with the assistance of RW, we should do RW first
+# because it may have some special knowledge about the new RO. If we can't
+# update RW, then we won't try to do RO.
+if [[ "$do_rw" = "yes" ]]; then
+    update_rw "$fwbin" || die "RW update failed"
+    get_running_version || die "No running version after RW update"
+fi
+
+if [[ "$do_ro" = "yes" ]]; then
+    update_ro "$fwbin" || die "RO update failed"
+fi
+
+log_info "All done"
+exit 0
