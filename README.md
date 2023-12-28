@@ -1,0 +1,14 @@
+# oriole-user 14 UQ1A.231205.015 11084887 release-keys
+- manufacturer: google
+- platform: gs101
+- codename: oriole
+- flavor: oriole-user
+- release: 14
+- id: UQ1A.231205.015
+- incremental: 11084887
+- tags: release-keys
+- fingerprint: google/oriole/oriole:14/UQ1A.231205.015/11084887:user/release-keys
+- is_ab: true
+- brand: google
+- branch: oriole-user-14-UQ1A.231205.015-11084887-release-keys
+- repo: google_oriole_dump
